@@ -1,0 +1,66 @@
+---
+title: "BPMN — проверка селфи водителя перед доступом к заказам"
+---
+flowchart LR
+  classDef event fill:#fff,stroke:#1f2937,stroke-width:3px,color:#111827;
+  classDef task fill:#e8f1ff,stroke:#2563eb,stroke-width:1.5px,color:#111827;
+  classDef ml fill:#f3e8ff,stroke:#7e22ce,stroke-width:2px,color:#111827;
+  classDef gateway fill:#fff7d6,stroke:#b45309,stroke-width:2px,color:#111827;
+  classDef manual fill:#ecfdf5,stroke:#047857,stroke-width:1.5px,color:#111827;
+  classDef data fill:#f8fafc,stroke:#64748b,stroke-dasharray: 4 3,color:#111827;
+
+  subgraph DRIVER["Пул: водитель — приложение Яндекс Про"]
+    direction LR
+    S(("Старт: приложение запросило проверку")):::event
+    D1["Открыть проверку и прочитать инструкцию"]:::task
+    D2["Сделать и отправить селфи"]:::task
+    G_RETRY{"Повторить попытку?"}:::gateway
+    D3["Переснять селфи"]:::task
+    E_OK((("Конец: доступ к заказам открыт"))):::event
+    E_NO((("Конец: доступ не открыт"))):::event
+  end
+
+  subgraph PLATFORM["Пул: платформа проверки личности"]
+    direction LR
+    P1["Создать сессию проверки"]:::task
+    P2["Получить эталонные признаки предыдущих селфи"]:::task
+    M1["Вызвать ML Inference Service:\nоценить качество, живость и сходство"]:::ml
+    G_AVAIL{"ML-ответ получен?"}:::gateway
+    G_QUALITY{"Качество ≥ 0,80\nи живость ≥ 0,85?"}:::gateway
+    G_SCORE{"Сходство ≥ 0,82?"}:::gateway
+    G_BORDER{"Сходство ≥ 0,65?"}:::gateway
+    P_OK["Открыть доступ к заказам"]:::task
+    P_RETRY["Запросить новое селфи и показать причину"]:::task
+    P_QUEUE["Поставить случай в очередь ручной проверки"]:::task
+    P_FAIL["Сохранить техническую ошибку и отправить на ручную проверку"]:::task
+    P_LOG["Записать исход проверки и обезличенные метрики"]:::task
+  end
+
+  subgraph REVIEW["Пул: специалист ручной проверки"]
+    direction LR
+    R1["Сопоставить селфи с эталоном"]:::manual
+    G_MANUAL{"Личность подтверждена?"}:::gateway
+    R2["Подтвердить совпадение"]:::manual
+    R3["Отклонить и указать причину"]:::manual
+    R4["Сохранить решение как разметку\nдля следующего обучения"]:::manual
+  end
+
+  S --> D1 --> D2 --> P1 --> P2 --> M1 --> G_AVAIL
+  G_AVAIL -- "нет / таймаут" --> P_FAIL --> P_QUEUE
+  G_AVAIL -- "да" --> G_QUALITY
+  G_QUALITY -- "нет" --> P_RETRY --> G_RETRY
+  G_RETRY -- "да" --> D3 --> D2
+  G_RETRY -- "нет" --> E_NO
+  G_QUALITY -- "да" --> G_SCORE
+  G_SCORE -- "да" --> P_OK --> P_LOG --> E_OK
+  G_SCORE -- "нет" --> G_BORDER
+  G_BORDER -- "да: пограничный ответ" --> P_QUEUE
+  G_BORDER -- "нет" --> P_RETRY
+  P_QUEUE --> R1 --> G_MANUAL
+  G_MANUAL -- "да" --> R2 --> R4 --> P_OK
+  G_MANUAL -- "нет" --> R3 --> R4 --> P_RETRY
+
+  FEEDBACK[("Набор размеченных исходов\nдля следующего обучения")]:::data
+  R4 -. "решение проверяющего" .-> FEEDBACK
+  P_LOG -. "оценка качества в эксплуатации" .-> FEEDBACK
+

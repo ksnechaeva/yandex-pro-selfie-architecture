@@ -1,0 +1,44 @@
+---
+title: "C4 Level 3 — Components: ML Inference Service"
+---
+flowchart TB
+  classDef component fill:#8b5cf6,stroke:#5b21b6,color:#fff,stroke-width:2px;
+  classDef internal fill:#c4b5fd,stroke:#6d28d9,color:#111827,stroke-width:1.5px;
+  classDef note fill:#fff,stroke:#64748b,stroke-dasharray: 4 3,color:#111827;
+
+  INPUT["Входной порт\nфото + эталонные признаки\n+ correlation_id"]:::note
+  OUTPUT["Выходной порт\nquality, liveness, similarity,\nmodel_version, reason_code"]:::note
+  MODEL["Вход артефактов\nодобренная версия моделей\n+ пороги"]:::note
+  METRICS["Выход телеметрии\nлатентность, ошибки,\nраспределения оценок"]:::note
+
+  subgraph MLSVC["ML Inference Service — контейнер со схемы C4 Containers"]
+    API["Inference API\n[Component: FastAPI/gRPC]\nВалидирует контракт и управляет запросом"]:::component
+    PRE["Image Preprocessor\n[Component: Python/OpenCV]\nДекодирует, нормализует, находит лицо"]:::internal
+    QUALITY["Quality Scorer\n[Component: ONNX Runtime]\nОценивает резкость, свет и позу"]:::internal
+    LIVE["Liveness Detector\n[Component: ONNX Runtime]\nОценивает вероятность живого лица"]:::internal
+    EMBED["Face Embedder\n[Component: ONNX Runtime/GPU]\nСтроит вектор признаков лица"]:::internal
+    MATCH["Similarity Matcher\n[Component: NumPy]\nСравнивает новый и эталонные векторы"]:::internal
+    POLICY["Decision Policy\n[Component: Python]\nФормирует reason_code по порогам"]:::component
+    LOADER["Model Loader\n[Component: Python]\nЗагружает одобренные артефакты\nи атомарно переключает версию"]:::component
+    OBS["Telemetry Adapter\n[Component: OpenTelemetry]\nПишет технические метрики\nбез исходного изображения"]:::component
+  end
+
+  INPUT --> API --> PRE
+  PRE --> QUALITY
+  PRE --> LIVE
+  PRE --> EMBED
+  EMBED --> MATCH
+  INPUT -. "эталонные признаки" .-> MATCH
+  QUALITY --> POLICY
+  LIVE --> POLICY
+  MATCH --> POLICY
+  POLICY --> API --> OUTPUT
+  MODEL --> LOADER
+  LOADER -->|"quality_model:vN"| QUALITY
+  LOADER -->|"liveness_model:vN"| LIVE
+  LOADER -->|"embedding_model:vN"| EMBED
+  LOADER -->|"thresholds:vN"| POLICY
+  API --> OBS --> METRICS
+
+  NOTE["Легенда\nфиолетовый — компонент контейнера\nпунктирная рамка — порт за границей диаграммы\nПорты показывают данные, но не переносят\nна схему остальные контейнеры."]:::note
+

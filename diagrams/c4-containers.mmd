@@ -1,0 +1,47 @@
+---
+title: "C4 Level 2 — Containers: система проверки личности по селфи"
+---
+flowchart LR
+  classDef person fill:#08427b,stroke:#052e56,color:#fff,stroke-width:2px;
+  classDef container fill:#438dd5,stroke:#0b4884,color:#fff,stroke-width:2px;
+  classDef ml fill:#7e22ce,stroke:#581c87,color:#fff,stroke-width:2px;
+  classDef db fill:#2e7d32,stroke:#1b5e20,color:#fff,stroke-width:2px;
+  classDef queue fill:#d97706,stroke:#92400e,color:#fff,stroke-width:2px;
+  classDef external fill:#999,stroke:#666,color:#fff,stroke-width:2px;
+
+  DRIVER["👤 Водитель"]:::person
+  REVIEWER["👤 Специалист проверки"]:::person
+  ORDERS["Платформа заказов\n[External system]"]:::external
+  NOTIFY["Сервис уведомлений\n[External system]"]:::external
+
+  subgraph BOUNDARY["Система проверки личности по селфи"]
+    APP["Backend Яндекс Про\n[Container: Kotlin/HTTP]\nПринимает фото, создаёт сессию,\nвозвращает статус"]:::container
+    ORCH["Verification Orchestrator\n[Container: Go/gRPC]\nВыполняет шаги процесса\nи применяет политику решения"]:::container
+    PROFILE["Profile & Reference Store\n[Container: PostgreSQL + object storage]\nХранит сессии и эталонные\nпризнаки предыдущих селфи"]:::db
+    INFER["ML Inference Service\n[Container: Python, ONNX Runtime, GPU]\nОценивает качество, живость\nи сходство лиц"]:::ml
+    REGISTRY["Model Registry\n[Container: MLflow + object storage]\nХранит одобренные версии моделей\nи пороги политики"]:::db
+    REVIEWQ["Review Queue\n[Container: Kafka]\nБуферизует пограничные случаи\nи ошибки ML"]:::queue
+    CONSOLE["Review Console\n[Container: React + Java API]\nПоказывает случай и принимает решение"]:::container
+    EVENTS["Outcome & Label Store\n[Container: Kafka + ClickHouse]\nХранит исходы, метрики\nи разметку проверяющих"]:::db
+    TRAIN["Training Pipeline\n[Container: Airflow + Python]\nПереобучает и валидирует модели\nвне онлайн-пути"]:::ml
+  end
+
+  DRIVER -->|"HTTPS: селфи, запрос статуса"| APP
+  APP -->|"gRPC: начать проверку"| ORCH
+  ORCH -->|"SQL/S3 API: сессия и эталонные признаки"| PROFILE
+  ORCH -->|"gRPC: фото + эталонные признаки"| INFER
+  REGISTRY -->|"Версия модели + пороги"| INFER
+  INFER -->|"quality, liveness, similarity, model_version"| ORCH
+  ORCH -->|"Kafka: пограничный случай / таймаут"| REVIEWQ
+  REVIEWQ -->|"Случай на разбор"| CONSOLE
+  REVIEWER -->|"HTTPS: решение и причина"| CONSOLE
+  CONSOLE -->|"gRPC: ручное решение"| ORCH
+  ORCH -->|"Решение о доступе"| ORDERS
+  ORCH -->|"Текст результата"| NOTIFY
+  ORCH -->|"Kafka: исход и оценки"| EVENTS
+  CONSOLE -->|"Kafka: размеченный исход"| EVENTS
+  EVENTS -->|"Выборка обучения и оценки"| TRAIN
+  TRAIN -->|"Кандидат модели после валидации"| REGISTRY
+
+  LEGEND["Легенда\nголубой — сервис\nфиолетовый — ML\nзелёный — хранилище\nоранжевый — очередь\nсерый — внешняя система"]:::external
+

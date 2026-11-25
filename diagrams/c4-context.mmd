@@ -1,0 +1,24 @@
+---
+title: "C4 Level 1 — System Context: система проверки личности по селфи"
+---
+flowchart LR
+  classDef person fill:#08427b,stroke:#052e56,color:#fff,stroke-width:2px;
+  classDef system fill:#1168bd,stroke:#0b4884,color:#fff,stroke-width:2px;
+  classDef external fill:#999,stroke:#666,color:#fff,stroke-width:2px;
+
+  DRIVER["👤 Водитель\n[Person]\nПроходит проверку и получает решение"]:::person
+  REVIEWER["👤 Специалист проверки\n[Person]\nРазбирает пограничные и ошибочные случаи"]:::person
+  SYS["Система проверки личности по селфи\n[Software System]\nСравнивает новое селфи с предыдущими\nи формирует решение о доступе"]:::system
+  ORDERS["Платформа заказов\n[External Software System]\nУправляет доступом водителя к заказам"]:::external
+  NOTIFY["Сервис уведомлений\n[External Software System]\nДоставляет результат в приложение"]:::external
+
+  DRIVER -->|"Передаёт селфи; запрашивает статус"| SYS
+  SYS -->|"Возвращает результат и причину пересъёмки"| DRIVER
+  SYS -->|"Передаёт случай на проверку"| REVIEWER
+  REVIEWER -->|"Возвращает решение и метку причины"| SYS
+  SYS -->|"Передаёт решение: открыть / не открывать доступ"| ORDERS
+  SYS -->|"Передаёт сообщение о результате"| NOTIFY
+  NOTIFY -->|"Показывает уведомление"| DRIVER
+
+  LEGEND["Легенда\nсиний — проектируемая система\nтёмно-синий — человек\nсерый — внешняя система"]:::external
+
